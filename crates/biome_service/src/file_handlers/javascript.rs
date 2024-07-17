@@ -1,6 +1,7 @@
 use super::{
-    AnalyzerCapabilities, CodeActionsParams, DebugCapabilities, ExtensionHandler,
+    search, AnalyzerCapabilities, CodeActionsParams, DebugCapabilities, ExtensionHandler,
     FormatterCapabilities, LintParams, LintResults, ParseResult, ParserCapabilities,
+    SearchCapabilities,
 };
 use crate::configuration::to_analyzer_rules;
 use crate::diagnostics::extension_error;
@@ -21,22 +22,21 @@ use crate::{
 use biome_analyze::options::PreferredQuote;
 use biome_analyze::{
     AnalysisFilter, AnalyzerConfiguration, AnalyzerOptions, ControlFlow, GroupCategory, Never,
-    QueryMatch, RegistryVisitor, RuleCategories, RuleCategory, RuleFilter, RuleGroup,
+    QueryMatch, Queryable, RegistryVisitor, RuleCategoriesBuilder, RuleCategory, RuleError,
+    RuleFilter, RuleGroup,
 };
 use biome_configuration::javascript::JsxRuntime;
 use biome_diagnostics::{category, Applicability, Diagnostic, DiagnosticExt, Severity};
 use biome_formatter::{
-    AttributePosition, FormatError, IndentStyle, IndentWidth, LineEnding, LineWidth, Printed,
-    QuoteStyle,
+    AttributePosition, BracketSpacing, FormatError, IndentStyle, IndentWidth, LineEnding,
+    LineWidth, Printed, QuoteStyle,
 };
 use biome_fs::BiomePath;
 use biome_js_analyze::utils::rename::{RenameError, RenameSymbolExtensions};
-use biome_js_analyze::{
-    analyze, analyze_with_inspect_matcher, visit_registry, ControlFlowGraph, RuleError,
-};
+use biome_js_analyze::{analyze, analyze_with_inspect_matcher, visit_registry, ControlFlowGraph};
 use biome_js_formatter::context::trailing_commas::TrailingCommas;
 use biome_js_formatter::context::{
-    ArrowParentheses, BracketSameLine, BracketSpacing, JsFormatOptions, QuoteProperties, Semicolons,
+    ArrowParentheses, BracketSameLine, JsFormatOptions, QuoteProperties, Semicolons,
 };
 use biome_js_formatter::format_node;
 use biome_js_parser::JsParserOptions;
@@ -162,7 +162,12 @@ impl ServiceLanguage for JsLanguage {
                 .and_then(|l| l.arrow_parentheses)
                 .unwrap_or_default(),
         )
-        .with_bracket_spacing(language.and_then(|l| l.bracket_spacing).unwrap_or_default())
+        .with_bracket_spacing(
+            language
+                .and_then(|l| l.bracket_spacing)
+                .or(global.and_then(|g| g.bracket_spacing))
+                .unwrap_or_default(),
+        )
         .with_bracket_same_line(
             language
                 .and_then(|l| l.bracket_same_line)
@@ -232,12 +237,13 @@ impl ServiceLanguage for JsLanguage {
             Some("vue") => {
                 globals.extend(
                     [
-                        "defineEmits",
-                        "defineProps",
-                        "defineExpose",
-                        "defineModel",
                         "defineOptions",
+                        "defineModel",
+                        "withDefaults",
+                        "defineProps",
+                        "defineEmits",
                         "defineSlots",
+                        "defineExpose",
                     ]
                     .map(ToOwned::to_owned),
                 );
@@ -288,6 +294,9 @@ impl ExtensionHandler for JsFileHandler {
                 format_range: Some(format_range),
                 format_on_type: Some(format_on_type),
             },
+            search: SearchCapabilities {
+                search: Some(search),
+            },
         }
     }
 }
@@ -318,14 +327,8 @@ fn parse(
 
     let file_source = file_source.to_js_file_source().unwrap_or_default();
     let parse = biome_js_parser::parse_js_with_cache(text, file_source, options, cache);
-    let root = parse.syntax();
-    let diagnostics = parse.into_diagnostics();
     ParseResult {
-        any_parse: AnyParse::new(
-            // SAFETY: the parser should always return a root node
-            root.as_send().unwrap(),
-            diagnostics,
-        ),
+        any_parse: parse.into(),
         language: None,
     }
 }
@@ -343,7 +346,7 @@ fn debug_control_flow(parse: AnyParse, cursor: TextSize) -> String {
     let mut control_flow_graph = None;
 
     let filter = AnalysisFilter {
-        categories: RuleCategories::LINT,
+        categories: RuleCategoriesBuilder::default().with_lint().build(),
         enabled_rules: Some(&[RuleFilter::Rule("correctness", "noUnreachable")]),
         ..AnalysisFilter::default()
     };
@@ -468,7 +471,7 @@ pub(crate) fn lint(params: LintParams) -> LintResults {
             // - it is a syntax-only analyzer pass, or
             // - if a single rule is run.
             let ignores_suppression_comment =
-                !filter.categories.contains(RuleCategories::LINT) || has_only_filter;
+                !filter.categories.contains(RuleCategory::Lint) || has_only_filter;
 
             let mut diagnostic_count = diagnostics.len() as u32;
             let mut errors = diagnostics
@@ -562,9 +565,7 @@ impl RegistryVisitor<JsLanguage> for ActionsVisitor<'_> {
 
     fn record_rule<R>(&mut self)
     where
-        R: biome_analyze::Rule + 'static,
-        R::Query: biome_analyze::Queryable<Language = JsLanguage>,
-        <R::Query as biome_analyze::Queryable>::Output: Clone,
+        R: biome_analyze::Rule<Query: Queryable<Language = JsLanguage, Output: Clone>> + 'static,
     {
         self.enabled_rules.push(RuleFilter::Rule(
             <R::Group as RuleGroup>::NAME,
@@ -614,10 +615,11 @@ pub(crate) fn code_actions(params: CodeActionsParams) -> PullActionsResult {
                 AnalysisFilter::default()
             };
 
-            filter.categories = RuleCategories::SYNTAX | RuleCategories::LINT;
+            let mut categories = RuleCategoriesBuilder::default().with_syntax().with_lint();
             if settings.organize_imports.enabled {
-                filter.categories |= RuleCategories::ACTION;
+                categories = categories.with_action();
             }
+            filter.categories = categories.build();
             filter.range = Some(range);
 
             let Some(source_type) = language.to_js_file_source() else {
@@ -696,7 +698,10 @@ pub(crate) fn fix_all(params: FixAllParams) -> Result<FixFileResult, WorkspaceEr
     let mut tree: AnyJsRoot = parse.tree();
     let mut actions = Vec::new();
 
-    filter.categories = RuleCategories::SYNTAX | RuleCategories::LINT;
+    filter.categories = RuleCategoriesBuilder::default()
+        .with_syntax()
+        .with_lint()
+        .build();
 
     let mut skipped_suggested_fixes = 0;
     let mut errors: u16 = 0;
@@ -919,7 +924,7 @@ pub(crate) fn organize_imports(parse: AnyParse) -> Result<OrganizeImportsResult,
 
     let filter = AnalysisFilter {
         enabled_rules: Some(&[RuleFilter::Rule("correctness", "organizeImports")]),
-        categories: RuleCategories::ACTION,
+        categories: RuleCategoriesBuilder::default().with_action().build(),
         ..AnalysisFilter::default()
     };
 

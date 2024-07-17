@@ -1,6 +1,6 @@
 use super::{
     is_diagnostic_error, CodeActionsParams, ExtensionHandler, FixAllParams, LintParams,
-    LintResults, ParseResult,
+    LintResults, ParseResult, SearchCapabilities,
 };
 use crate::configuration::to_analyzer_rules;
 use crate::file_handlers::DebugCapabilities;
@@ -18,7 +18,8 @@ use crate::workspace::{
 use crate::WorkspaceError;
 use biome_analyze::options::PreferredQuote;
 use biome_analyze::{
-    AnalysisFilter, AnalyzerConfiguration, AnalyzerOptions, ControlFlow, Never, RuleCategories,
+    AnalysisFilter, AnalyzerConfiguration, AnalyzerOptions, ControlFlow, Never,
+    RuleCategoriesBuilder, RuleCategory, RuleError,
 };
 use biome_css_analyze::analyze;
 use biome_css_formatter::context::CssFormatOptions;
@@ -30,8 +31,6 @@ use biome_formatter::{
     FormatError, IndentStyle, IndentWidth, LineEnding, LineWidth, Printed, QuoteStyle,
 };
 use biome_fs::BiomePath;
-use biome_js_analyze::RuleError;
-use biome_js_syntax::AnyJsRoot;
 use biome_parser::AnyParse;
 use biome_rowan::{AstNode, NodeCache};
 use biome_rowan::{TextRange, TextSize, TokenAtOffset};
@@ -80,8 +79,8 @@ impl Default for CssLinterSettings {
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CssParserSettings {
-    pub allow_wrong_line_comments: bool,
-    pub css_modules: bool,
+    pub allow_wrong_line_comments: Option<bool>,
+    pub css_modules: Option<bool>,
 }
 
 impl ServiceLanguage for CssLanguage {
@@ -203,6 +202,7 @@ impl ExtensionHandler for CssFileHandler {
                 format_range: Some(format_range),
                 format_on_type: Some(format_on_type),
             },
+            search: SearchCapabilities { search: None },
         }
     }
 }
@@ -216,11 +216,12 @@ fn parse(
 ) -> ParseResult {
     let mut options = CssParserOptions {
         allow_wrong_line_comments: settings
-            .map(|s| s.languages.css.parser.allow_wrong_line_comments)
+            .and_then(|s| s.languages.css.parser.allow_wrong_line_comments)
             .unwrap_or_default(),
         css_modules: settings
-            .map(|s| s.languages.css.parser.allow_wrong_line_comments)
+            .and_then(|s| s.languages.css.parser.css_modules)
             .unwrap_or_default(),
+        grit_metavariable: false,
     };
     if let Some(settings) = settings {
         options = settings
@@ -228,14 +229,8 @@ fn parse(
             .to_override_css_parser_options(biome_path, options);
     }
     let parse = biome_css_parser::parse_css_with_cache(text, cache, options);
-    let root = parse.syntax();
-    let diagnostics = parse.into_diagnostics();
     ParseResult {
-        any_parse: AnyParse::new(
-            // SAFETY: the parser should always return a root node
-            root.as_send().unwrap(),
-            diagnostics,
-        ),
+        any_parse: parse.into(),
         language: None,
     }
 }
@@ -386,7 +381,7 @@ fn lint(params: LintParams) -> LintResults {
             // - it is a syntax-only analyzer pass, or
             // - if a single rule is run.
             let ignores_suppression_comment =
-                !filter.categories.contains(RuleCategories::LINT) || has_only_filter;
+                !filter.categories.contains(RuleCategory::Lint) || has_only_filter;
 
             let mut diagnostic_count = diagnostics.len() as u32;
             let mut errors = diagnostics
@@ -475,7 +470,7 @@ pub(crate) fn code_actions(params: CodeActionsParams) -> PullActionsResult {
         language,
         settings,
     } = params;
-    debug_span!("Code actions JavaScript", range =? range, path =? path).in_scope(move || {
+    debug_span!("Code actions CSS", range =? range, path =? path).in_scope(move || {
         let tree = parse.tree();
         trace_span!("Parsed file", tree =? tree).in_scope(move || {
             let rules = settings.as_rules(params.path.as_path());
@@ -488,10 +483,11 @@ pub(crate) fn code_actions(params: CodeActionsParams) -> PullActionsResult {
 
             let mut filter = AnalysisFilter::from_enabled_rules(filter.as_slice());
 
-            filter.categories = RuleCategories::SYNTAX | RuleCategories::LINT;
+            let mut categories = RuleCategoriesBuilder::default().with_syntax().with_lint();
             if settings.organize_imports.enabled {
-                filter.categories |= RuleCategories::ACTION;
+                categories = categories.with_action();
             }
+            filter.categories = categories.build();
             filter.range = Some(range);
 
             let analyzer_options = workspace.analyzer_options::<CssLanguage>(path, &language);
@@ -537,7 +533,7 @@ pub(crate) fn fix_all(params: FixAllParams) -> Result<FixFileResult, WorkspaceEr
 
     let settings = workspace.settings();
     let Some(settings) = settings else {
-        let tree: AnyJsRoot = parse.tree();
+        let tree: CssRoot = parse.tree();
 
         return Ok(FixFileResult {
             actions: vec![],

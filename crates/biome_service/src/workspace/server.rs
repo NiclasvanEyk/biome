@@ -1,5 +1,5 @@
 use super::{
-    ChangeFileParams, CloseFileParams, FeatureName, FixFileResult, FormatFileParams,
+    ChangeFileParams, CloseFileParams, FeatureKind, FeatureName, FixFileResult, FormatFileParams,
     FormatOnTypeParams, FormatRangeParams, GetControlFlowGraphParams, GetFormatterIRParams,
     GetSyntaxTreeParams, GetSyntaxTreeResult, OpenFileParams, OpenProjectParams,
     ParsePatternParams, ParsePatternResult, PatternId, ProjectKey, PullActionsParams,
@@ -7,6 +7,7 @@ use super::{
     RenameResult, SearchPatternParams, SearchResults, SupportsFeatureParams,
     UnregisterProjectFolderParams, UpdateProjectParams, UpdateSettingsParams,
 };
+use crate::diagnostics::{InvalidPattern, SearchError};
 use crate::file_handlers::{
     Capabilities, CodeActionsParams, DocumentFileSource, FixAllParams, LintParams, ParseResult,
 };
@@ -25,16 +26,18 @@ use biome_diagnostics::{
 use biome_formatter::Printed;
 use biome_fs::{BiomePath, ConfigName};
 use biome_grit_patterns::GritQuery;
+use biome_js_syntax::ModuleKind;
 use biome_json_parser::{parse_json_with_cache, JsonParserOptions};
 use biome_json_syntax::JsonFileSource;
 use biome_parser::AnyParse;
-use biome_project::NodeJsProject;
+use biome_project::{NodeJsProject, PackageType};
 use biome_rowan::NodeCache;
 use dashmap::{mapref::entry::Entry, DashMap};
 use indexmap::IndexSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{panic::RefUnwindSafe, sync::RwLock};
 use tracing::{debug, info, info_span};
 
@@ -264,11 +267,12 @@ impl WorkspaceServer {
 
     /// Check whether a file is ignored in the top-level config `files.ignore`/`files.include`
     /// or in the feature `ignore`/`include`
-    fn is_ignored(&self, path: &Path, features: Vec<FeatureName>) -> bool {
+    fn is_ignored(&self, path: &Path, features: FeatureName) -> bool {
         let file_name = path.file_name().and_then(|s| s.to_str());
         let ignored_by_features = {
             let mut ignored = false;
-            for feature in features {
+
+            for feature in features.iter() {
                 // a path is ignored if it's ignored by all features
                 ignored &= self.is_ignored_by_feature_config(path, feature)
             }
@@ -315,29 +319,31 @@ impl WorkspaceServer {
     }
 
     /// Check whether a file is ignored in the feature `ignore`/`include`
-    fn is_ignored_by_feature_config(&self, path: &Path, feature: FeatureName) -> bool {
+    fn is_ignored_by_feature_config(&self, path: &Path, feature: FeatureKind) -> bool {
         let settings = self.workspace();
         let settings = settings.settings();
         let Some(settings) = settings else {
             return false;
         };
         let (feature_included_files, feature_ignored_files) = match feature {
-            FeatureName::Format => {
+            FeatureKind::Format => {
                 let formatter = &settings.formatter;
                 (&formatter.included_files, &formatter.ignored_files)
             }
-            FeatureName::Lint => {
+            FeatureKind::Lint => {
                 let linter = &settings.linter;
                 (&linter.included_files, &linter.ignored_files)
             }
-            FeatureName::OrganizeImports => {
+            FeatureKind::OrganizeImports => {
                 let organize_imports = &settings.organize_imports;
                 (
                     &organize_imports.included_files,
                     &organize_imports.ignored_files,
                 )
             }
-            FeatureName::Search => return false, // There is no search-specific config.
+            // TODO: enable once the configuration is available
+            FeatureKind::Assists => return false,
+            FeatureKind::Search => return false, // There is no search-specific config.
         };
         let is_feature_included = feature_included_files.is_empty()
             || is_dir(path)
@@ -377,7 +383,7 @@ impl Workspace for WorkspaceServer {
         } else if self.is_ignored_by_top_level_config(path) {
             file_features.set_ignored_for_all_features();
         } else {
-            for feature in params.features {
+            for feature in params.features.iter() {
                 if self.is_ignored_by_feature_config(path, feature) {
                     file_features.ignored(feature);
                 }
@@ -417,11 +423,20 @@ impl Workspace for WorkspaceServer {
     }
     /// Add a new file to the workspace
     fn open_file(&self, params: OpenFileParams) -> Result<(), WorkspaceError> {
-        let index = self.set_source(
-            params
-                .document_file_source
-                .unwrap_or(DocumentFileSource::from_path(&params.path)),
-        );
+        let mut source = params
+            .document_file_source
+            .unwrap_or(DocumentFileSource::from_path(&params.path));
+        let manifest = self.get_current_project()?.map(|pr| pr.manifest);
+
+        if let DocumentFileSource::Js(js) = &mut source {
+            if let Some(manifest) = manifest {
+                if manifest.r#type == Some(PackageType::Commonjs) && js.file_extension() == "js" {
+                    js.set_module_kind(ModuleKind::Script);
+                }
+            }
+        }
+
+        let index = self.set_source(source);
         self.syntax.remove(&params.path);
         self.documents.insert(
             params.path.clone(),
@@ -775,18 +790,42 @@ impl Workspace for WorkspaceServer {
     ) -> Result<ParsePatternResult, WorkspaceError> {
         let pattern = biome_grit_patterns::compile_pattern(
             &params.pattern,
+            None,
             biome_grit_patterns::JsTargetLanguage.into(),
         )?;
-        let pattern_id = PatternId::from("1234"); // TODO: Generate a real ID.
+
+        let pattern_id = make_search_pattern_id();
         self.patterns.insert(pattern_id.clone(), pattern);
         Ok(ParsePatternResult { pattern_id })
     }
 
     fn search_pattern(&self, params: SearchPatternParams) -> Result<SearchResults, WorkspaceError> {
-        // FIXME: Let's implement some real matching here...
+        let Some(query) = self.patterns.get(&params.pattern) else {
+            return Err(WorkspaceError::SearchError(SearchError::InvalidPattern(
+                InvalidPattern,
+            )));
+        };
+
+        let capabilities = self.get_file_capabilities(&params.path);
+        let search = capabilities
+            .search
+            .search
+            .ok_or_else(self.build_capability_error(&params.path))?;
+        let workspace = self.workspace();
+        let parse = self.get_parse(params.path.clone())?;
+
+        let document_file_source = self.get_file_source(&params.path);
+        let matches = search(
+            &params.path,
+            &document_file_source,
+            parse,
+            &query,
+            workspace,
+        )?;
+
         Ok(SearchResults {
             file: params.path,
-            matches: Vec::new(),
+            matches,
         })
     }
 
@@ -820,4 +859,12 @@ impl Workspace for WorkspaceServer {
 /// if it is a symlink that resolves to a directory.
 fn is_dir(path: &Path) -> bool {
     path.is_dir() || (path.is_symlink() && fs::read_link(path).is_ok_and(|path| path.is_dir()))
+}
+
+/// Generates a pattern ID that we can use as "handle" for referencing
+/// previously parsed search queries.
+fn make_search_pattern_id() -> PatternId {
+    static COUNTER: AtomicUsize = AtomicUsize::new(1);
+    let counter = COUNTER.fetch_add(1, Ordering::AcqRel);
+    format!("p{counter}").into()
 }

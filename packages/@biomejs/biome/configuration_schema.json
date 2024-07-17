@@ -33,6 +33,13 @@
 				{ "type": "null" }
 			]
 		},
+		"graphql": {
+			"description": "Specific configuration for the GraphQL language",
+			"anyOf": [
+				{ "$ref": "#/definitions/GraphqlConfiguration" },
+				{ "type": "null" }
+			]
+		},
 		"javascript": {
 			"description": "Specific configuration for the JavaScript language",
 			"anyOf": [
@@ -299,6 +306,7 @@
 		},
 		"ArrowParentheses": { "type": "string", "enum": ["always", "asNeeded"] },
 		"AttributePosition": { "type": "string", "enum": ["auto", "multiline"] },
+		"BracketSpacing": { "type": "boolean" },
 		"Complexity": {
 			"description": "A list of rules that belong to this group",
 			"type": "object",
@@ -1100,6 +1108,13 @@
 						{ "type": "null" }
 					]
 				},
+				"bracketSpacing": {
+					"description": "Whether to insert spaces around brackets in object literals. Defaults to true.",
+					"anyOf": [
+						{ "$ref": "#/definitions/BracketSpacing" },
+						{ "type": "null" }
+					]
+				},
 				"enabled": { "type": ["boolean", "null"] },
 				"formatWithErrors": {
 					"description": "Stores whether formatting should be allowed to proceed if a given file has syntax errors",
@@ -1135,6 +1150,82 @@
 				"lineWidth": {
 					"description": "What's the max width of a line. Defaults to 80.",
 					"anyOf": [{ "$ref": "#/definitions/LineWidth" }, { "type": "null" }]
+				},
+				"useEditorconfig": {
+					"description": "Use any `.editorconfig` files to configure the formatter. Configuration in `biome.json` will override `.editorconfig` configuration. Default: false.",
+					"type": ["boolean", "null"]
+				}
+			},
+			"additionalProperties": false
+		},
+		"GraphqlConfiguration": {
+			"description": "Options applied to GraphQL files",
+			"type": "object",
+			"properties": {
+				"formatter": {
+					"description": "GraphQL formatter options",
+					"anyOf": [
+						{ "$ref": "#/definitions/GraphqlFormatter" },
+						{ "type": "null" }
+					]
+				},
+				"linter": {
+					"anyOf": [
+						{ "$ref": "#/definitions/GraphqlLinter" },
+						{ "type": "null" }
+					]
+				}
+			},
+			"additionalProperties": false
+		},
+		"GraphqlFormatter": {
+			"description": "Options that changes how the GraphQL formatter behaves",
+			"type": "object",
+			"properties": {
+				"bracketSpacing": {
+					"description": "Whether to insert spaces around brackets in object literals. Defaults to true.",
+					"anyOf": [
+						{ "$ref": "#/definitions/BracketSpacing" },
+						{ "type": "null" }
+					]
+				},
+				"enabled": {
+					"description": "Control the formatter for GraphQL files.",
+					"type": ["boolean", "null"]
+				},
+				"indentStyle": {
+					"description": "The indent style applied to GraphQL files.",
+					"anyOf": [
+						{ "$ref": "#/definitions/PlainIndentStyle" },
+						{ "type": "null" }
+					]
+				},
+				"indentWidth": {
+					"description": "The size of the indentation applied to GraphQL files. Default to 2.",
+					"anyOf": [{ "$ref": "#/definitions/IndentWidth" }, { "type": "null" }]
+				},
+				"lineEnding": {
+					"description": "The type of line ending applied to GraphQL files.",
+					"anyOf": [{ "$ref": "#/definitions/LineEnding" }, { "type": "null" }]
+				},
+				"lineWidth": {
+					"description": "What's the max width of a line applied to GraphQL files. Defaults to 80.",
+					"anyOf": [{ "$ref": "#/definitions/LineWidth" }, { "type": "null" }]
+				},
+				"quoteStyle": {
+					"description": "The type of quotes used in GraphQL code. Defaults to double.",
+					"anyOf": [{ "$ref": "#/definitions/QuoteStyle" }, { "type": "null" }]
+				}
+			},
+			"additionalProperties": false
+		},
+		"GraphqlLinter": {
+			"description": "Options that changes how the GraphQL linter behaves",
+			"type": "object",
+			"properties": {
+				"enabled": {
+					"description": "Control the formatter for GraphQL files.",
+					"type": ["boolean", "null"]
 				}
 			},
 			"additionalProperties": false
@@ -1249,7 +1340,10 @@
 				},
 				"bracketSpacing": {
 					"description": "Whether to insert spaces around brackets in object literals. Defaults to true.",
-					"type": ["boolean", "null"]
+					"anyOf": [
+						{ "$ref": "#/definitions/BracketSpacing" },
+						{ "type": "null" }
+					]
 				},
 				"enabled": {
 					"description": "Control the formatter for JavaScript (and its super languages) files.",
@@ -1713,6 +1807,20 @@
 						{ "type": "null" }
 					]
 				},
+				"noDuplicatedFields": {
+					"description": "No duplicated fields in GraphQL operations.",
+					"anyOf": [
+						{ "$ref": "#/definitions/RuleConfiguration" },
+						{ "type": "null" }
+					]
+				},
+				"noDynamicNamespaceImportAccess": {
+					"description": "Disallow accessing namespace imports dynamically.",
+					"anyOf": [
+						{ "$ref": "#/definitions/RuleConfiguration" },
+						{ "type": "null" }
+					]
+				},
 				"noEmptyBlock": {
 					"description": "Disallow CSS empty blocks.",
 					"anyOf": [
@@ -1727,6 +1835,13 @@
 						{ "type": "null" }
 					]
 				},
+				"noExportedImports": {
+					"description": "Disallow exporting an imported variable.",
+					"anyOf": [
+						{ "$ref": "#/definitions/RuleConfiguration" },
+						{ "type": "null" }
+					]
+				},
 				"noImportantInKeyframe": {
 					"description": "Disallow invalid !important within keyframe declarations",
 					"anyOf": [
@@ -1734,8 +1849,22 @@
 						{ "type": "null" }
 					]
 				},
+				"noInvalidDirectionInLinearGradient": {
+					"description": "Disallow non-standard direction values for linear gradient functions.",
+					"anyOf": [
+						{ "$ref": "#/definitions/RuleConfiguration" },
+						{ "type": "null" }
+					]
+				},
 				"noInvalidPositionAtImportRule": {
 					"description": "Disallow the use of @import at-rules in invalid positions.",
+					"anyOf": [
+						{ "$ref": "#/definitions/RuleConfiguration" },
+						{ "type": "null" }
+					]
+				},
+				"noIrregularWhitespace": {
+					"description": "Disallows the use of irregular whitespace characters.",
 					"anyOf": [
 						{ "$ref": "#/definitions/RuleConfiguration" },
 						{ "type": "null" }
@@ -1771,6 +1900,13 @@
 				},
 				"noShorthandPropertyOverrides": {
 					"description": "Disallow shorthand properties that override related longhand properties.",
+					"anyOf": [
+						{ "$ref": "#/definitions/RuleConfiguration" },
+						{ "type": "null" }
+					]
+				},
+				"noStaticElementInteractions": {
+					"description": "Enforce that static, visible elements (such as \\<div>) that have click handlers use the valid role attribute.",
 					"anyOf": [
 						{ "$ref": "#/definitions/RuleConfiguration" },
 						{ "type": "null" }
@@ -1885,6 +2021,13 @@
 						{ "type": "null" }
 					]
 				},
+				"useConsistentCurlyBraces": {
+					"description": "This rule enforces consistent use of curly braces inside JSX attributes and JSX children.",
+					"anyOf": [
+						{ "$ref": "#/definitions/RuleFixConfiguration" },
+						{ "type": "null" }
+					]
+				},
 				"useConsistentGridAreas": {
 					"description": "Disallows invalid named grid areas in CSS Grid Layouts.",
 					"anyOf": [
@@ -1901,6 +2044,13 @@
 				},
 				"useDefaultSwitchClause": {
 					"description": "Require the default clause in switch statements.",
+					"anyOf": [
+						{ "$ref": "#/definitions/RuleConfiguration" },
+						{ "type": "null" }
+					]
+				},
+				"useDeprecatedReason": {
+					"description": "Require specifying the reason argument when using @deprecated directive",
 					"anyOf": [
 						{ "$ref": "#/definitions/RuleConfiguration" },
 						{ "type": "null" }
@@ -1937,7 +2087,7 @@
 				"useImportExtensions": {
 					"description": "Enforce file extensions for relative imports.",
 					"anyOf": [
-						{ "$ref": "#/definitions/RuleFixConfiguration" },
+						{ "$ref": "#/definitions/UseImportExtensionsConfiguration" },
 						{ "type": "null" }
 					]
 				},
@@ -1966,6 +2116,13 @@
 					"description": "Enforce the sorting of CSS utility classes.",
 					"anyOf": [
 						{ "$ref": "#/definitions/UtilityClassSortingConfiguration" },
+						{ "type": "null" }
+					]
+				},
+				"useStrictMode": {
+					"description": "Enforce the use of the directive \"use strict\" in script files.",
+					"anyOf": [
+						{ "$ref": "#/definitions/RuleFixConfiguration" },
 						{ "type": "null" }
 					]
 				},
@@ -2025,6 +2182,13 @@
 					"description": "The attribute position style.",
 					"anyOf": [
 						{ "$ref": "#/definitions/AttributePosition" },
+						{ "type": "null" }
+					]
+				},
+				"bracketSpacing": {
+					"description": "Whether to insert spaces around brackets in object literals. Defaults to true.",
+					"anyOf": [
+						{ "$ref": "#/definitions/BracketSpacing" },
 						{ "type": "null" }
 					]
 				},
@@ -2097,6 +2261,13 @@
 					"description": "Specific configuration for the Json language",
 					"anyOf": [
 						{ "$ref": "#/definitions/OverrideFormatterConfiguration" },
+						{ "type": "null" }
+					]
+				},
+				"graphql": {
+					"description": "Specific configuration for the Graphql language",
+					"anyOf": [
+						{ "$ref": "#/definitions/GraphqlConfiguration" },
 						{ "type": "null" }
 					]
 				},
@@ -2418,6 +2589,25 @@
 				"options": {
 					"description": "Rule's options",
 					"allOf": [{ "$ref": "#/definitions/RestrictedImportsOptions" }]
+				}
+			},
+			"additionalProperties": false
+		},
+		"RuleWithUseImportExtensionsOptions": {
+			"type": "object",
+			"required": ["level", "options"],
+			"properties": {
+				"fix": {
+					"description": "The kind of the code actions emitted by the rule",
+					"anyOf": [{ "$ref": "#/definitions/FixKind" }, { "type": "null" }]
+				},
+				"level": {
+					"description": "The severity of the emitted diagnostics by the rule",
+					"allOf": [{ "$ref": "#/definitions/RulePlainConfiguration" }]
+				},
+				"options": {
+					"description": "Rule's options",
+					"allOf": [{ "$ref": "#/definitions/UseImportExtensionsOptions" }]
 				}
 			},
 			"additionalProperties": false
@@ -2909,6 +3099,21 @@
 			},
 			"additionalProperties": false
 		},
+		"SuggestedExtensionMapping": {
+			"type": "object",
+			"required": ["component", "module"],
+			"properties": {
+				"component": {
+					"description": "Extension that should be used for component file imports",
+					"type": "string"
+				},
+				"module": {
+					"description": "Extension that should be used for module imports",
+					"type": "string"
+				}
+			},
+			"additionalProperties": false
+		},
 		"Suspicious": {
 			"description": "A list of rules that belong to this group",
 			"type": "object",
@@ -3342,6 +3547,26 @@
 					"enum": ["all"]
 				}
 			]
+		},
+		"UseImportExtensionsConfiguration": {
+			"anyOf": [
+				{ "$ref": "#/definitions/RulePlainConfiguration" },
+				{ "$ref": "#/definitions/RuleWithUseImportExtensionsOptions" }
+			]
+		},
+		"UseImportExtensionsOptions": {
+			"type": "object",
+			"required": ["suggestedExtensions"],
+			"properties": {
+				"suggestedExtensions": {
+					"description": "A map of custom import extension mappings, where the key is the inspected file extension, and the value is a pair of `module` extension and `component` import extension",
+					"type": "object",
+					"additionalProperties": {
+						"$ref": "#/definitions/SuggestedExtensionMapping"
+					}
+				}
+			},
+			"additionalProperties": false
 		},
 		"UseValidAutocompleteConfiguration": {
 			"anyOf": [

@@ -1,12 +1,14 @@
-use biome_analyze::{context::RuleContext, declare_rule, Ast, Rule, RuleDiagnostic, RuleSource};
+use biome_analyze::{
+    context::RuleContext, declare_lint_rule, Ast, Rule, RuleDiagnostic, RuleSource,
+};
 use biome_console::{markup, MarkupBuf};
 use biome_js_syntax::{
-    AnyJsClassMember, AnyTsType, AnyTsTypeMember, JsClassDeclaration, JsLanguage,
+    AnyJsClassMember, AnyTsType, AnyTsTypeMember, JsClassDeclaration, JsSyntaxToken,
     TsDeclareStatement, TsInterfaceDeclaration, TsReferenceType, TsTypeAliasDeclaration,
 };
-use biome_rowan::{declare_node_union, AstNode, SyntaxToken, TextRange};
+use biome_rowan::{declare_node_union, AstNode, TextRange};
 
-declare_rule! {
+declare_lint_rule! {
     /// Enforce proper usage of `new` and `constructor`.
     ///
     /// In JavaScript, classes utilize the `constructor` method to initialize a new instance. On the other hand, TypeScript interfaces can describe a class type with a `new()` method signature, though this pattern is not commonly seen in real-world code. Developers, especially those new to JavaScript or TypeScript, might occasionally confuse the use of `constructor` with `new`.
@@ -228,7 +230,7 @@ fn check_type_alias(decl: &TsTypeAliasDeclaration) -> Option<RuleState> {
 }
 
 /// Extracts the identifier from a reference type.
-fn extract_return_type_ident(reference_type: &TsReferenceType) -> Option<SyntaxToken<JsLanguage>> {
+fn extract_return_type_ident(reference_type: &TsReferenceType) -> Option<JsSyntaxToken> {
     reference_type
         .name()
         .ok()?

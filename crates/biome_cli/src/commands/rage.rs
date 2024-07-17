@@ -217,6 +217,7 @@ impl Display for RageConfiguration<'_, '_> {
                             {KeyValuePair("Line ending", markup!({DebugDisplay(formatter_configuration.line_ending)}))}
                             {KeyValuePair("Line width", markup!({DebugDisplay(formatter_configuration.line_width.value())}))}
                             {KeyValuePair("Attribute position", markup!({DebugDisplay(formatter_configuration.attribute_position)}))}
+                            {KeyValuePair("Bracket spacing", markup!({DebugDisplay(formatter_configuration.bracket_spacing)}))}
                             {KeyValuePair("Ignore", markup!({DebugDisplay(formatter_configuration.ignore.iter().collect::<Vec<_>>())}))}
                             {KeyValuePair("Include", markup!({DebugDisplay(formatter_configuration.include.iter().collect::<Vec<_>>())}))}
                         ).fmt(fmt)?;
@@ -231,14 +232,14 @@ impl Display for RageConfiguration<'_, '_> {
                             {KeyValuePair("Trailing commas", markup!({DebugDisplay(javascript_formatter_configuration.trailing_commas)}))}
                             {KeyValuePair("Semicolons", markup!({DebugDisplay(javascript_formatter_configuration.semicolons)}))}
                             {KeyValuePair("Arrow parentheses", markup!({DebugDisplay(javascript_formatter_configuration.arrow_parentheses)}))}
-                            {KeyValuePair("Bracket spacing", markup!({DebugDisplay(javascript_formatter_configuration.bracket_spacing)}))}
+                            {KeyValuePair("Bracket spacing", markup!({DebugDisplayOption(javascript_formatter_configuration.bracket_spacing)}))}
                             {KeyValuePair("Bracket same line", markup!({DebugDisplay(javascript_formatter_configuration.bracket_same_line)}))}
                             {KeyValuePair("Quote style", markup!({DebugDisplay(javascript_formatter_configuration.quote_style)}))}
                             {KeyValuePair("Indent style", markup!({DebugDisplayOption(javascript_formatter_configuration.indent_style)}))}
                             {KeyValuePair("Indent width", markup!({DebugDisplayOption(javascript_formatter_configuration.indent_width)}))}
                             {KeyValuePair("Line ending", markup!({DebugDisplayOption(javascript_formatter_configuration.line_ending)}))}
                             {KeyValuePair("Line width", markup!({DebugDisplayOption(javascript_formatter_configuration.line_width.map(|lw| lw.value()))}))}
-                            {KeyValuePair("Attribute position", markup!({DebugDisplay(javascript_formatter_configuration.attribute_position)}))}
+                            {KeyValuePair("Attribute position", markup!({DebugDisplayOption(javascript_formatter_configuration.attribute_position)}))}
                         )
                         .fmt(fmt)?;
 
@@ -265,6 +266,19 @@ impl Display for RageConfiguration<'_, '_> {
                             {KeyValuePair("Line width", markup!({DebugDisplayOption(css_formatter_configuration.line_width)}))}
                             {KeyValuePair("Quote style", markup!({DebugDisplay(css_formatter_configuration.quote_style)}))}
                         ).fmt(fmt)?;
+
+                        let graphql_formatter_configuration =
+                            configuration.get_graphql_formatter_configuration();
+                        markup! (
+                            {Section("GraphQL Formatter")}
+                            {KeyValuePair("Enabled", markup!({DebugDisplayOption(graphql_formatter_configuration.enabled)}))}
+                            {KeyValuePair("Indent style", markup!({DebugDisplayOption(graphql_formatter_configuration.indent_style)}))}
+                            {KeyValuePair("Indent width", markup!({DebugDisplayOption(graphql_formatter_configuration.indent_width)}))}
+                            {KeyValuePair("Line ending", markup!({DebugDisplayOption(graphql_formatter_configuration.line_ending)}))}
+                            {KeyValuePair("Line width", markup!({DebugDisplayOption(graphql_formatter_configuration.line_width)}))}
+                            {KeyValuePair("Bracket spacing", markup!({DebugDisplayOption(graphql_formatter_configuration.bracket_spacing)}))}
+                            {KeyValuePair("Quote style", markup!({DebugDisplayOption(graphql_formatter_configuration.quote_style)}))}
+                        ).fmt(fmt)?;
                     }
 
                     // Print linter configuration if --linter option is true
@@ -274,11 +288,13 @@ impl Display for RageConfiguration<'_, '_> {
                         let javascript_linter = configuration.get_javascript_linter_configuration();
                         let json_linter = configuration.get_json_linter_configuration();
                         let css_linter = configuration.get_css_linter_configuration();
+                        let graphq_linter = configuration.get_graphql_linter_configuration();
                         markup! (
                             {Section("Linter")}
                             {KeyValuePair("JavaScript enabled", markup!({DebugDisplay(javascript_linter.enabled)}))}
                             {KeyValuePair("JSON enabled", markup!({DebugDisplay(json_linter.enabled)}))}
                             {KeyValuePair("CSS enabled", markup!({DebugDisplay(css_linter.enabled)}))}
+                            {KeyValuePair("GraphQL enabled", markup!({DebugDisplayOption(graphq_linter.enabled)}))}
                             {KeyValuePair("Recommended", markup!({DebugDisplay(linter_configuration.recommended.unwrap_or_default())}))}
                             {KeyValuePair("All", markup!({DebugDisplay(linter_configuration.all.unwrap_or_default())}))}
                             {RageConfigurationLintRules("Enabled rules",linter_configuration)}

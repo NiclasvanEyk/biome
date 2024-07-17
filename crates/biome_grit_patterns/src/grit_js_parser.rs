@@ -1,28 +1,47 @@
-use crate::{grit_analysis_ext::GritAnalysisExt, grit_tree::GritTree};
+use crate::{
+    grit_analysis_ext::GritAnalysisExt, grit_target_language::GritTargetParser,
+    grit_tree::GritTargetTree,
+};
 use biome_js_parser::{parse, JsParserOptions};
 use biome_js_syntax::JsFileSource;
+use biome_parser::AnyParse;
 use grit_util::{AnalysisLogs, FileOrigin, Parser, SnippetTree};
 use std::path::Path;
 
 pub struct GritJsParser;
 
+impl GritTargetParser for GritJsParser {
+    fn from_cached_parse_result(
+        &self,
+        parse: &AnyParse,
+        path: Option<&Path>,
+        logs: &mut AnalysisLogs,
+    ) -> Option<GritTargetTree> {
+        for diagnostic in parse.diagnostics() {
+            logs.push(diagnostic.to_log(path));
+        }
+
+        Some(GritTargetTree::new(parse.syntax().into()))
+    }
+}
+
 impl Parser for GritJsParser {
-    type Tree = GritTree;
+    type Tree = GritTargetTree;
 
     fn parse_file(
         &mut self,
         body: &str,
         path: Option<&Path>,
         logs: &mut AnalysisLogs,
-        _old_tree: FileOrigin<'_, GritTree>,
-    ) -> Option<GritTree> {
+        _old_tree: FileOrigin<'_, GritTargetTree>,
+    ) -> Option<GritTargetTree> {
         let parse_result = parse(body, JsFileSource::tsx(), JsParserOptions::default());
 
         for diagnostic in parse_result.diagnostics() {
             logs.push(diagnostic.to_log(path));
         }
 
-        Some(GritTree::new(parse_result.syntax().into()))
+        Some(GritTargetTree::new(parse_result.syntax().into()))
     }
 
     fn parse_snippet(
@@ -30,7 +49,7 @@ impl Parser for GritJsParser {
         prefix: &'static str,
         source: &str,
         postfix: &'static str,
-    ) -> SnippetTree<GritTree> {
+    ) -> SnippetTree<GritTargetTree> {
         let context = format!("{prefix}{source}{postfix}");
 
         let len = if cfg!(target_arch = "wasm32") {
@@ -42,7 +61,7 @@ impl Parser for GritJsParser {
         let parse_result = parse(&context, JsFileSource::tsx(), JsParserOptions::default());
 
         SnippetTree {
-            tree: GritTree::new(parse_result.syntax().into()),
+            tree: GritTargetTree::new(parse_result.syntax().into()),
             source: source.to_owned(),
             prefix,
             postfix,

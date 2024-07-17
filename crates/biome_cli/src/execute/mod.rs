@@ -62,7 +62,7 @@ impl Execution {
 }
 
 impl Execution {
-    pub(crate) fn to_features(&self) -> Vec<FeatureName> {
+    pub(crate) fn to_feature(&self) -> FeatureName {
         match self.traversal_mode {
             TraversalMode::Format { .. } => FeaturesBuilder::new().with_formatter().build(),
             TraversalMode::Lint { .. } => FeaturesBuilder::new().with_linter().build(),
@@ -71,7 +71,7 @@ impl Execution {
                 .with_formatter()
                 .with_linter()
                 .build(),
-            TraversalMode::Migrate { .. } => vec![],
+            TraversalMode::Migrate { .. } => FeatureName::empty(),
             TraversalMode::Search { .. } => FeaturesBuilder::new().with_search().build(),
         }
     }
@@ -315,6 +315,10 @@ impl Execution {
 
     pub(crate) const fn is_ci(&self) -> bool {
         matches!(self.traversal_mode, TraversalMode::CI { .. })
+    }
+
+    pub(crate) const fn is_search(&self) -> bool {
+        matches!(self.traversal_mode, TraversalMode::Search { .. })
     }
 
     pub(crate) const fn is_check(&self) -> bool {
